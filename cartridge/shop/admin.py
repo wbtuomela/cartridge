@@ -120,9 +120,10 @@ variation_fields = [
     "num_in_stock",
     "unit_price",
     "sale_price",
-    "sale_from",
-    "sale_to",
+    "primary",
+    "pattern",
     "image",
+    "msg",
 ]
 if settings.SHOP_USE_VARIATIONS:
     variation_fields.insert(1, "default")
@@ -133,7 +134,7 @@ else:
     variations_extra = 1
 
 
-class ProductVariationAdmin(admin.TabularInline):
+class ProductVariationAdmin(admin.StackedInline):
     verbose_name_plural = _("Current variations")
     model = ProductVariation
     fields = variation_fields
@@ -472,6 +473,7 @@ admin.site.register(Category, CategoryAdmin)
 admin.site.register(Product, ProductAdmin)
 if settings.SHOP_USE_VARIATIONS:
     admin.site.register(ProductOption, ProductOptionAdmin)
-admin.site.register(Order, OrderAdmin)
+# The site registers its own Order admin in ``jaanj/admin.py``, so Cartridge's
+# is left unregistered here to avoid a duplicate registration.
 admin.site.register(Sale, SaleAdmin)
 admin.site.register(DiscountCode, DiscountCodeAdmin)

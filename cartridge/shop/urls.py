@@ -6,7 +6,12 @@ from cartridge.shop import views
 _slash = "/" if settings.APPEND_SLASH else ""
 
 urlpatterns = [
-    re_path(r"^product/(?P<slug>.*)%s$" % _slash, views.product, name="shop_product"),
+    # The site mounts its own product and invoice-resend views at the site root
+    # (ornatus/urls.py), so Cartridge's routes are disabled to avoid duplicate
+    # URL names.
+    # re_path(
+    #     r"^product/(?P<slug>.*)%s$" % _slash, views.product, name="shop_product"
+    # ),
     path("wishlist%s" % _slash, views.wishlist, name="shop_wishlist"),
     path("cart%s" % _slash, views.cart, name="shop_cart"),
     path("checkout%s" % _slash, views.checkout_steps, name="shop_checkout"),
@@ -14,9 +19,9 @@ urlpatterns = [
     re_path(
         r"^invoice/(?P<order_id>\d+)%s$" % _slash, views.invoice, name="shop_invoice"
     ),
-    re_path(
-        r"^invoice/(?P<order_id>\d+)/resend%s$" % _slash,
-        views.invoice_resend_email,
-        name="shop_invoice_resend",
-    ),
+    # re_path(
+    #     r"^invoice/(?P<order_id>\d+)/resend%s$" % _slash,
+    #     views.invoice_resend_email,
+    #     name="shop_invoice_resend",
+    # ),
 ]

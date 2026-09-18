@@ -150,6 +150,10 @@ class CartItemForm(forms.ModelForm):
         """
         Validate that the given quantity is available.
         """
+        # A GiftCode in the cart can only have a quantity of 1 and is never
+        # out of stock.
+        if "JJGiftCard" in self.instance.sku:
+            return 1
         variation = ProductVariation.objects.get(sku=self.instance.sku)
         quantity = self.cleaned_data["quantity"]
         if not variation.has_stock(quantity - self.instance.quantity):

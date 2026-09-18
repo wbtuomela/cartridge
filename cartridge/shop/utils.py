@@ -35,7 +35,6 @@ def recalculate_cart(request):
     cart is modified.
     """
     from cartridge.shop import checkout
-    from cartridge.shop.forms import DiscountForm
     from cartridge.shop.models import Cart
 
     # Rebind the cart to request since it's been modified.
@@ -43,23 +42,15 @@ def recalculate_cart(request):
         request.session["cart"] = request.cart.pk
     request.cart = Cart.objects.from_request(request)
 
-    discount_code = request.session.get("discount_code", "")
-    if discount_code:
-        # Clear out any previously defined discount code
-        # session vars.
-        names = ("free_shipping", "discount_code", "discount_total")
-        clear_session(request, *names)
-        discount_form = DiscountForm(request, {"discount_code": discount_code})
-        if discount_form.is_valid():
-            discount_form.set_discount()
+    # The site uses GiftCodes rather than Cartridge's discount-code session
+    # handling, so the discount-code recomputation is intentionally skipped.
 
     handler = lambda s: import_dotted_path(s) if s else lambda *args: None
     billship_handler = handler(settings.SHOP_HANDLER_BILLING_SHIPPING)
     tax_handler = handler(settings.SHOP_HANDLER_TAX)
     try:
-        if request.session["order"]["step"] >= checkout.CHECKOUT_STEP_FIRST:
-            billship_handler(request, None)
-            tax_handler(request, None)
+        billship_handler(request, None)
+        tax_handler(request, None)
     except (checkout.CheckoutError, ValueError, KeyError):
         pass
 

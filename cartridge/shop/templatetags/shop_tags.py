@@ -39,6 +39,9 @@ def _order_totals(context):
         "discount_total",
         "tax_type",
         "tax_total",
+        "discount_code",
+        "discount_type",
+        "discount_remain",
     ]
     template_vars = {}
 
@@ -57,6 +60,10 @@ def _order_totals(context):
             for field in fields:
                 template_vars[field] = context["request"].session.get(field, None)
     template_vars["order_total"] = template_vars.get("item_total", None)
+    if template_vars.get("discount_type", None) == "Coupon":
+        template_vars["new_subtotal"] = template_vars["order_total"] - Decimal(
+            template_vars["discount_total"]
+        )
     if template_vars.get("shipping_total", None) is not None:
         template_vars["order_total"] += Decimal(str(template_vars["shipping_total"]))
     if template_vars.get("discount_total", None) is not None:
