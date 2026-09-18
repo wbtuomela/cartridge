@@ -177,6 +177,7 @@ class ProductImage(Orderable):
     product = models.ForeignKey(
         "Product", related_name="images", on_delete=models.CASCADE
     )
+    active = models.BooleanField(_("Active?"), default=True)
 
     class Meta:
         verbose_name = _("Image")
@@ -206,8 +207,8 @@ class ProductOption(models.Model):
         return f"{self.get_type_display()}: {self.name}"
 
     class Meta:
-        verbose_name = _("Product option")
-        verbose_name_plural = _("Product options")
+        verbose_name = _("Product Option")
+        verbose_name_plural = _("Product Options")
 
 
 class ProductVariationMetaclass(ModelBase):
@@ -243,37 +244,66 @@ class ProductVariation(Priced, metaclass=ProductVariationMetaclass):
         blank=True,
         on_delete=models.SET_NULL,
     )
+    _order = models.PositiveIntegerField(_("Order"), null=True)
 
     objects = managers.ProductVariationManager()
 
     class Meta:
-        ordering = ("-default",)
+        ordering = ("-default", "_order", "option1")
 
     def __str__(self):
         """
         Display the option names and values for the variation.
         """
-        options = []
-        for field in self.option_fields():
-            name = getattr(self, field.name)
-            if name is not None:
-                option = f"{field.verbose_name}: {name}"
-                options.append(option)
-        result = "{} {}".format(str(self.product), ", ".join(options))
-        return result.strip()
+        options = [str(self.product)]
+        if self.option2 and "Skinny Cotton Ties" not in options[0]:
+            options.append(self.option2)
+        if self.option1:
+            options.append("%s Tipping" % self.option1)
+        return " - ".join(options).strip()
 
     def save(self, *args, **kwargs):
         """
         Use the variation's ID as the SKU when the variation is first
-        created.
+        created, and keep the denormalised product slug / colour slug in
+        sync.
         """
         super().save(*args, **kwargs)
+        if self.product.slug != self.slug:
+            self.slug = self.product.slug
+            self.save()
+        if not self.cslug and self.image:
+            self.cslug = self._color_slug()
+            self.save()
         if not self.sku:
             self.sku = self.id
             self.save()
 
+    def _color_slug(self):
+        return (
+            self.image.file.name.split("/")[-1]
+            .replace("-med.jpg", "")
+            .replace(".png", "")
+            .replace(".jpg", "")[:-1]
+        )
+
+    def to_dict(self):
+        """
+        Make it easier to export Products to json object for
+        GA Ecommerce event tracking
+        """
+        return {
+            "id": self.sku,
+            "name": self.product.title,
+            "variant": "-".join(str(self).split(" - ")[1:]),
+            "category": self.product.categories.first().title,
+            "price": str(self.sale_price if self.sale_price else self.unit_price),
+        }
+
     def get_absolute_url(self):
-        return self.product.get_absolute_url()
+        return reverse(
+            "specific_product", kwargs={"slug": self.slug, "cslug": self.cslug}
+        )
 
     def validate_unique(self, *args, **kwargs):
         """
@@ -397,6 +427,7 @@ class Category(Page, RichText):
     class Meta:
         verbose_name = _("Product category")
         verbose_name_plural = _("Product categories")
+        ordering = ("-slug",)
 
     def filters(self):
         """
@@ -453,19 +484,19 @@ class Order(SiteRelated):
     billing_detail_last_name = CharField(_("Last name"), max_length=100)
     billing_detail_street = CharField(_("Street"), max_length=100)
     billing_detail_city = CharField(_("City/Suburb"), max_length=100)
-    billing_detail_state = CharField(_("State/Region"), max_length=100)
+    billing_detail_state = CharField(_("State/Region"), max_length=100, null=True)
     billing_detail_postcode = CharField(_("Zip/Postcode"), max_length=10)
     billing_detail_country = CharField(_("Country"), max_length=100)
-    billing_detail_phone = CharField(_("Phone"), max_length=20)
+    billing_detail_phone = CharField(_("Phone"), max_length=20, null=True)
     billing_detail_email = models.EmailField(_("Email"), max_length=254)
     shipping_detail_first_name = CharField(_("First name"), max_length=100)
     shipping_detail_last_name = CharField(_("Last name"), max_length=100)
     shipping_detail_street = CharField(_("Street"), max_length=100)
     shipping_detail_city = CharField(_("City/Suburb"), max_length=100)
-    shipping_detail_state = CharField(_("State/Region"), max_length=100)
+    shipping_detail_state = CharField(_("State/Region"), max_length=100, null=True)
     shipping_detail_postcode = CharField(_("Zip/Postcode"), max_length=10)
     shipping_detail_country = CharField(_("Country"), max_length=100)
-    shipping_detail_phone = CharField(_("Phone"), max_length=20)
+    shipping_detail_phone = CharField(_("Phone"), max_length=20, null=True)
     additional_instructions = models.TextField(_("Additional instructions"), blank=True)
     time = models.DateTimeField(_("Time"), auto_now_add=True, null=True)
     key = CharField(max_length=40, db_index=True)
@@ -557,7 +588,8 @@ class Order(SiteRelated):
                 pass
             else:
                 variation.update_stock(item.quantity * -1)
-                variation.product.actions.purchased()
+                # ProductAction (and its ``actions`` manager) is not part of
+                # the site's schema, so the purchase action is not recorded.
         if discount_code:
             DiscountCode.objects.active().filter(code=discount_code).update(
                 uses_remaining=models.F("uses_remaining") - 1
@@ -587,7 +619,9 @@ class Order(SiteRelated):
         Returns the HTML for a link to the PDF invoice for use in the
         order listing view of the admin.
         """
-        url = reverse("shop:shop_invoice", args=(self.id,))
+        # Preserve the site's un-namespaced invoice route name (ornatus/urls.py
+        # includes cartridge.shop.urls without a namespace).
+        url = reverse("shop_invoice", args=(self.id,))
         text = gettext("Download PDF invoice")
         return mark_safe(f"<a href='{url}?format=pdf'>{text}</a>")
 
@@ -600,6 +634,9 @@ class Cart(models.Model):
     last_updated = models.DateTimeField(_("Last updated"), null=True)
 
     objects = managers.CartManager()
+
+    def __str__(self):
+        return "%s items $%s" % (self.total_quantity(), self.total_price())
 
     def __iter__(self):
         """
@@ -622,11 +659,13 @@ class Cart(models.Model):
         if created:
             item.description = force_str(variation)
             item.unit_price = variation.price()
-            item.url = variation.product.get_absolute_url()
+            item.url = variation.get_absolute_url()
+            item.category = variation.product.categories.first().slug
             image = variation.image
             if image is not None:
                 item.image = force_str(image.file)
-            variation.product.actions.added_to_cart()
+            # ProductAction (and its ``actions`` manager) is not part of the
+            # site's schema, so the added-to-cart action is not recorded.
         item.quantity += quantity
         item.save()
 
@@ -667,15 +706,17 @@ class Cart(models.Model):
         with_cart_excluded = for_cart.exclude(variations__sku__in=self.skus())
         return list(with_cart_excluded.distinct())
 
-    def calculate_discount(self, discount):
+    def calculate_discount(self, discount, shipping):
         """
         Calculates the discount based on the items in a cart, some
-        might have the discount, others might not.
+        might have the discount, others might not. ``shipping`` is added to
+        the cart total for whole-cart discounts so a free-shipping discount
+        can cover the shipping amount too.
         """
         # Discount applies to cart total if not product specific.
         products = discount.all_products()
         if products.count() == 0:
-            return discount.calculate(self.total_price())
+            return discount.calculate(self.total_price() + shipping)
         total = Decimal("0")
         # Create a list of skus in the cart that are applicable to
         # the discount, and total the discount for appllicable items.
@@ -703,7 +744,26 @@ class SelectedProduct(models.Model):
         abstract = True
 
     def __str__(self):
-        return ""
+        return "%ix %s" % (self.quantity, self.sku)
+
+    def to_dict(self):
+        """
+        Make it easier to export Order|CartItems to json object for
+        GA Ecommerce tracking
+        """
+        sku = "JJGiftCard" if "JJGiftCard" in self.sku else self.sku
+        try:
+            pv = ProductVariation.objects.get(sku=sku)
+        except ProductVariation.DoesNotExist:
+            return {}
+        return {
+            "id": pv.sku,
+            "name": pv.product.title,
+            "category": pv.product.categories.first().title,
+            "variant": "-".join(str(pv).split(" - ")[1:]),
+            "price": str(self.unit_price),
+            "quantity": self.quantity,
+        }
 
     def save(self, *args, **kwargs):
         """
@@ -743,25 +803,9 @@ class OrderItem(SelectedProduct):
     order = models.ForeignKey("Order", related_name="items", on_delete=models.CASCADE)
 
 
-class ProductAction(models.Model):
-    """
-    Records an incremental value for an action against a product such
-    as adding to cart or purchasing, for sales reporting and
-    calculating popularity. Not yet used but will be used for product
-    popularity and sales reporting.
-    """
-
-    product = models.ForeignKey(
-        "Product", related_name="actions", on_delete=models.CASCADE
-    )
-    timestamp = models.IntegerField()
-    total_cart = models.IntegerField(default=0)
-    total_purchase = models.IntegerField(default=0)
-
-    objects = managers.ProductActionManager()
-
-    class Meta:
-        unique_together = ("product", "timestamp")
+# The upstream ``ProductAction`` model is intentionally absent: the site's
+# schema (``migrations/cartridge_shop``) has no ``shop_productaction`` table and
+# the fork removed the model together with its call sites.
 
 
 class Discount(models.Model):
@@ -774,9 +818,11 @@ class Discount(models.Model):
 
     title = CharField(_("Title"), max_length=100)
     active = models.BooleanField(_("Active"), default=False)
-    products = models.ManyToManyField("Product", blank=True, verbose_name=_("Products"))
+    products = models.ManyToManyField(
+        "shop.Product", blank=True, verbose_name=_("Products")
+    )
     categories = models.ManyToManyField(
-        "Category",
+        "shop.Category",
         blank=True,
         related_name="%(class)s_related",
         verbose_name=_("Categories"),
@@ -944,5 +990,5 @@ class DiscountCode(Discount):
         return 0
 
     class Meta:
-        verbose_name = _("Discount code")
-        verbose_name_plural = _("Discount codes")
+        verbose_name = _("Discount Code")
+        verbose_name_plural = _("Discount Codes")

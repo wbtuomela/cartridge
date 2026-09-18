@@ -6,7 +6,11 @@ from mezzanine.utils.views import paginate
 from cartridge.shop.models import Category, Product
 
 
-@processor_for(Category, exact_page=True)
+# The site registers its own @processor_for(Category, exact_page=True) in
+# jaanj/page_processors.py. Registration prepends and PageMiddleware stops at
+# the first HttpResponse, so keeping both registrations would make category
+# handling order-dependent.
+#@processor_for(Category, exact_page=True)
 def category_processor(request, page):
     """
     Add paging/sorting to the products for the category.
