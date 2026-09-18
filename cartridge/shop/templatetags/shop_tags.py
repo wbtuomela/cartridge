@@ -26,6 +26,14 @@ def currency(value):
     return value
 
 
+# Names that are JJANJ commerce customizations rather than Cartridge Order
+# fields: they are written onto the order only when a coupon or gift card is
+# applied (see donum/forms.py and jaanj.models.Order), so a base Cartridge
+# order does not carry them. Only these optional names default to None below;
+# every mandatory total still raises when absent.
+OPTIONAL_ORDER_FIELDS = ("discount_type", "discount_remain")
+
+
 def _order_totals(context):
     """
     Add shipping/tax/discount/order types and totals to the template
@@ -46,7 +54,10 @@ def _order_totals(context):
 
     if "order" in context:
         for field in fields + ["item_total"]:
-            template_vars[field] = getattr(context["order"], field)
+            if field in OPTIONAL_ORDER_FIELDS:
+                template_vars[field] = getattr(context["order"], field, None)
+            else:
+                template_vars[field] = getattr(context["order"], field)
     else:
         template_vars["item_total"] = context["request"].cart.total_price()
         if template_vars["item_total"] == 0:
