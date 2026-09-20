@@ -642,7 +642,12 @@ class Cart(models.Model):
         ensuring the items are only retrieved once and cached.
         """
         if not hasattr(self, "_cached_items"):
-            self.save()
+            if self.pk is None:
+                # Django 4.2 raises ValueError for related-manager access on
+                # an unsaved instance. An unsaved cart has no items, so return
+                # the pre-4.2 empty result without persisting the cart (the
+                # manager creates new carts unsaved by design).
+                return iter(())
             self._cached_items = self.items.all()
         return iter(self._cached_items)
 
