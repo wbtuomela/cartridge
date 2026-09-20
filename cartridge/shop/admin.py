@@ -383,7 +383,10 @@ class OrderAdmin(admin.ModelAdmin):
     )
 
     def invoice_url(self, obj):
-        return format_html(obj.invoice())
+        # Django 5.0 deprecated calling format_html() without args or
+        # kwargs (RemovedInDjango60Warning); Order.invoice() already
+        # returns a SafeString, so pass it as the single escaped argument.
+        return format_html("{}", obj.invoice())
 
     invoice_url.short_description = "Invoice"
 
