@@ -30,7 +30,6 @@ from copy import deepcopy
 
 from django.contrib import admin
 from django.db.models import ImageField
-from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from mezzanine.conf import settings
 from mezzanine.core.admin import (
@@ -62,7 +61,6 @@ from cartridge.shop.models import (
     ProductVariation,
     Sale,
 )
-from cartridge.shop.views import HAS_PDF
 
 # Lists of field names.
 option_fields = [f.name for f in ProductVariation.option_fields()]
@@ -340,8 +338,6 @@ def address_pairs(fields):
 
 
 order_list_display = ("id", "billing_name", "total", "time", "status", "transaction_id")
-if HAS_PDF:
-    order_list_display += ("invoice_url",)
 
 
 class OrderAdmin(admin.ModelAdmin):
@@ -381,20 +377,6 @@ class OrderAdmin(admin.ModelAdmin):
             },
         ),
     )
-
-    def invoice_url(self, obj):
-        # Django 5.0 deprecated calling format_html() without args or
-        # kwargs (RemovedInDjango60Warning); Order.invoice() already
-        # returns a SafeString, so pass it as the single escaped argument.
-        return format_html("{}", obj.invoice())
-
-    invoice_url.short_description = "Invoice"
-
-    def change_view(self, *args, **kwargs):
-        if kwargs.get("extra_context", None) is None:
-            kwargs["extra_context"] = {}
-        kwargs["extra_context"]["has_pdf"] = HAS_PDF
-        return super().change_view(*args, **kwargs)
 
 
 class SaleAdmin(admin.ModelAdmin):

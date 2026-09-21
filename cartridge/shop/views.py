@@ -5,8 +5,6 @@ from django.contrib.messages import info
 from django.db.models import Sum
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
-from django.template.defaultfilters import slugify
-from django.template.loader import get_template
 from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.translation import gettext as _
@@ -28,11 +26,10 @@ from cartridge.shop.utils import recalculate_cart, sign
 
 from donum.models import GiftCode
 
-try:
-    from xhtml2pdf import pisa
-except (ImportError, SyntaxError):
-    pisa = None
-HAS_PDF = pisa is not None
+# Step 7c (owner D3 = drop): the xhtml2pdf/reportlab PDF stack was removed
+# from the dependency graph, so the invoice PDF route is retired below. The
+# `HAS_PDF` flag, the `has_pdf` template context and the admin PDF column are
+# gone with it; nothing here imports the PDF stack any more.
 
 
 # Set up checkout handlers.
@@ -392,7 +389,6 @@ def complete(request, template="shop/complete.html", extra_context=None):
     context = {
         "order": order,
         "items": items,
-        "has_pdf": HAS_PDF,
         "steps": checkout.CHECKOUT_STEPS,
     }
     context.update(extra_context or {})
@@ -404,7 +400,6 @@ def invoice(
     request,
     order_id,
     template="shop/order_invoice.html",
-    template_pdf="shop/order_invoice_pdf.html",
     extra_context=None,
 ):
     """
@@ -419,13 +414,16 @@ def invoice(
     context = {"order": order}
     context.update(order.details_as_dict())
     context.update(extra_context or {})
-    if HAS_PDF and request.GET.get("format") == "pdf":
-        response = HttpResponse(content_type="application/pdf")
-        name = slugify(f"{settings.SITE_TITLE}-invoice-{order.id}")
-        response["Content-Disposition"] = "attachment; filename=%s.pdf" % name
-        html = get_template(template_pdf).render(context)
-        pisa.CreatePDF(html, response)
-        return response
+    if request.GET.get("format") == "pdf":
+        # Step 7c (owner D3 = drop): the PDF invoice was removed together
+        # with the xhtml2pdf/reportlab stack. Fail closed with 410 Gone
+        # rather than silently serving the HTML invoice to a client that
+        # asked for a PDF; the plain invoice below is unchanged.
+        return HttpResponse(
+            "PDF invoices are no longer available.",
+            content_type="text/plain; charset=utf-8",
+            status=410,
+        )
     return TemplateResponse(request, template, context)
 
 
@@ -443,7 +441,7 @@ def order_history(request, template="shop/order_history.html", extra_context=Non
         settings.SHOP_PER_PAGE_CATEGORY,
         settings.MAX_PAGING_LINKS,
     )
-    context = {"orders": orders, "has_pdf": HAS_PDF}
+    context = {"orders": orders}
     context.update(extra_context or {})
     return TemplateResponse(request, template, context)
 
